@@ -52,13 +52,13 @@ img_size = 96
 
 #%%
 def net_mlp(input_var = None):
-    l_in = lasagne.layers.InputLayer(shape=(None, 1, img_size, img_size),
+    l_in = lg.layers.InputLayer(shape=(None, img_size*img_size),
                                      input_var=input_var)
-    l_hid1 = lasagne.layers.DenseLayer(
+    l_hid1 = lg.layers.DenseLayer(
             l_in, num_units=100,
-            nonlinearity=lasagne.nonlinearities.rectify,
-            W=lasagne.init.GlorotUniform())
-    l_out = lasagne.layers.DenseLayer(
+            nonlinearity=lg.nonlinearities.rectify,
+            W=lg.init.GlorotUniform())
+    l_out = lg.layers.DenseLayer(
             l_hid1, num_units=30,
             nonlinearity=None)
     return l_out
@@ -73,12 +73,12 @@ def iter_batch(X , y, batch_size, shuffle = False):
         if shuffle:
             excerpt = index[i : i+batch_size]
         else:
-            excerpt = slice(i : i+batch_size)
+            excerpt = slice(i, i+batch_size)
         yield X[excerpt], y[excerpt]
 #%%
 # graph
-input_var = T.tensor4()
-target_var = T.ivector()
+input_var = T.matrix('in')
+target_var = T.matrix('out')
 
 network = net_mlp(input_var)
 prediction = lg.layers.get_output(network)
