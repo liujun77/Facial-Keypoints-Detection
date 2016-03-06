@@ -88,33 +88,85 @@ params = lg.layers.get_all_params(network, trainable=True)
 updates = lg.updates.nesterov_momentum(
             loss, params, learning_rate=0.01, momentum=0.9)
 
-valid_prediction = lg.layers.get_output(network, deterministic=True)
+valid_prediction = lg.layers.get_output(network)
 valid_loss = lg.objectives.squared_error(valid_prediction, target_var)
 valid_loss = valid_loss.mean()
 
 train_fn = theano.function([input_var, target_var], loss, updates=updates)
-val_fn = theano.function([input_var, target_var], valid_loss)
+val_fn = theano.function([input_var, target_var], [valid_loss, valid_prediction])
 
 #%%
+train_size = 1700#int(X.shape[0]*0.8)
+valid_size = 400#X.shape[0] - train_size
+train_X = X[:train_size]
+train_y = y[:train_size]
+valid_X = X[train_size:]
+valid_y = y[train_size:]
 
+#%%
+train_loss = []
+valid_loss = []
 num_epochs = 400
+
 for epoch in range(num_epochs):
     train_err = 0
     train_batches = 0
     start_time = dt.datetime.now()
-    for batch in iter_batch(X, y, 50, shuffle=True):
+    for batch in iter_batch(train_X, train_y, 50, shuffle=True):
         batch_X, batch_y = batch
         train_err += train_fn(batch_X, batch_y)
         train_batches +=1
+
+    valid_err = 0
+    valid_batches = 0    
+    for batch in iter_batch(valid_X, valid_y, 50, shuffle=False):
+        batch_X, batch_y = batch
+        dloss, _ = val_fn(batch_X, batch_y)
+        valid_err += dloss
+        valid_batches +=1        
     
-    print("Epoch {} of {} took {}".format(
-            epoch + 1, num_epochs, dt.datetime.now() - start_time))
-    print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
+    #print("Epoch {} of {} took {}".format(
+    #        epoch + 1, num_epochs, dt.datetime.now() - start_time))
+    #print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
+    #print("  valid    loss:\t\t{:.6f}".format(valid_err / valid_batches))
+    #print('train_batches = {}, valid_batches = {}'.format(train_batches, valid_batches))
+    train_loss.append(train_err/train_batches)
+    valid_loss.append(valid_err/valid_batches)
 
 #%%
 
+n_epochs = range(1,num_epochs+1)
+plt.plot(n_epochs, train_loss)
+plt.plot(n_epochs, valid_loss)
+plt.ylim(1e-3, 1e-2)
+plt.yscale("log")
+plt.show()
 
+#%%
+def plot_sample(x, y, axis):
+    img = x.reshape(96, 96)
+    axis.imshow(img, cmap='gray')
+    axis.scatter(y[0::2] * 48 + 48, y[1::2] * 48 + 48, marker='x', s=10)
 
+#%%
+
+test_X, _ = load(test=True)
+
+#%%
+test_batch_X = test_X[0:50]
+#%%
+_, test_y = val_fn(test_batch_X, valid_y[0:50])
+
+#%%
+fig = plt.figure(figsize=(6, 6))
+fig.subplots_adjust(
+    left=0, right=1, bottom=0, top=1, hspace=0.05, wspace=0.05)
+
+for i in range(16):
+    ax = fig.add_subplot(4, 4, i + 1, xticks=[], yticks=[])
+    plot_sample(test_batch_X[i], test_y[i], ax)
+
+plt.show()
 
 
 
