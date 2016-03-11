@@ -257,10 +257,10 @@ write_data(valid_loss, 'valid_loss.pickle')
 #%%
 train_loss = read_data('train_loss.pickle')
 valid_loss = read_data('valid_loss.pickle')
-n_epochs = range(1,num_epochs+1)
+n_epochs = range(1,len(train_loss)+1)
 plt.plot(n_epochs, train_loss)
 plt.plot(n_epochs, valid_loss)
-plt.ylim(1e-3, 1e-2)
+plt.ylim(4e-4, 1e-2)
 plt.yscale("log")
 plt.show()
 
