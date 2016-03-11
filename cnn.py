@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from sklearn.utils import shuffle
-import datetime as dt
+import time
 import theano
 import theano.tensor as T
 import lasagne as lg
@@ -45,7 +45,29 @@ def load2d(test = False, cols = None):
     return X, y
     
 #%%
+class colors:  
+    BLACK         = '\033[0;30m'  
+    DARK_GRAY     = '\033[1;30m'  
+    LIGHT_GRAY    = '\033[0;37m'  
+    BLUE          = '\033[0;34m'  
+    LIGHT_BLUE    = '\033[1;34m'  
+    GREEN         = '\033[0;32m'  
+    LIGHT_GREEN   = '\033[1;32m'  
+    CYAN          = '\033[0;36m'  
+    LIGHT_CYAN    = '\033[1;36m'  
+    RED           = '\033[0;31m'  
+    LIGHT_RED     = '\033[1;31m'  
+    PURPLE        = '\033[0;35m'  
+    LIGHT_PURPLE  = '\033[1;35m'  
+    BROWN         = '\033[0;33m'  
+    YELLOW        = '\033[1;33m'  
+    WHITE         = '\033[1;37m'  
+    DEFAULT_COLOR = '\033[00m'  
+    RED_BOLD      = '\033[01;31m'  
+    ENDC          = '\033[0m'  
+#%%
 import cPickle as pickle 
+import os
 
 def write_model_data(model, filename):
     """Pickels the parameters within a Lasagne model."""
@@ -60,15 +82,22 @@ def write_data(data, filename):
 
 def read_model_data(model, filename):
     """Unpickles and loads parameters into a Lasagne model."""
+    if not os.path.exists(filename):
+        print("{} not exists".format(filename))
+        return
     with open(filename, 'r') as f:
         data = pickle.load(f)
     lg.layers.set_all_param_values(model, data)
-
+     
 def read_data(filename):
     """Unpickles and loads parameters into a Lasagne model."""
+    if not os.path.exists(filename):
+        print("{} not exists".format(filename))
+        return None
     with open(filename, 'r') as f:
         data = pickle.load(f)
     return data
+        
 #%%
 img_size = 96
 
@@ -76,25 +105,37 @@ def net_cnn(input_var = None):
     network = lg.layers.InputLayer(shape=(None, 1, img_size, img_size),
                                         input_var=input_var)
     network = Conv2DLayer(
-            network, num_filters=32, filter_size=(5, 5),
+            network, 
+            num_filters=32, 
+            filter_size=(5, 5), 
+            pad='same', 
             nonlinearity=lg.nonlinearities.rectify,
             W=lg.init.GlorotUniform())
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = Conv2DLayer(
-            lg.layers.dropout(network, p=.1), num_filters=64, filter_size=(5, 5),
+            lg.layers.dropout(network, p=.1), 
+            num_filters=64, 
+            filter_size=(3, 3),
+            pad='same', 
             nonlinearity=lg.nonlinearities.rectify)
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = Conv2DLayer(
-            lg.layers.dropout(network, p=.2), num_filters=128, filter_size=(5, 5),
+            lg.layers.dropout(network, p=.2), 
+            num_filters=128, 
+            filter_size=(3, 3),
+            pad='same', 
             nonlinearity=lg.nonlinearities.rectify)
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = lg.layers.DenseLayer(
             lg.layers.dropout(network, p=.3),
-            num_units=256,
+            num_units=500,
             nonlinearity=lg.nonlinearities.rectify)
-
     network = lg.layers.DenseLayer(
             lg.layers.dropout(network, p=.5),
+            num_units=500,
+            nonlinearity=lg.nonlinearities.rectify)
+    network = lg.layers.DenseLayer(
+            network,
             num_units=30,
             nonlinearity=None)
     return network
@@ -115,14 +156,16 @@ def iter_batch(X , y, batch_size, shuffle = False):
 # graph
 input_var = T.tensor4('in')
 target_var = T.matrix('out')
+learning_rate = theano.shared(np.array(0.1, dtype=theano.config.floatX))
 
+print("Building model and compiling functions...")
 network = net_cnn(input_var)
 prediction = lg.layers.get_output(network)
 loss = lg.objectives.squared_error(prediction, target_var)
 loss = loss.mean()
 params = lg.layers.get_all_params(network, trainable=True)
 updates = lg.updates.nesterov_momentum(
-            loss, params, learning_rate=0.01, momentum=0.9)
+            loss, params, learning_rate=learning_rate, momentum=0.9)
 
 valid_prediction = lg.layers.get_output(network, deterministic=True)
 valid_loss = lg.objectives.squared_error(valid_prediction, target_var)
@@ -132,6 +175,7 @@ train_fn = theano.function([input_var, target_var], loss, updates=updates)
 val_fn = theano.function([input_var, target_var], [valid_loss, valid_prediction])
 
 #%%
+print("Loading data...")
 X ,y =load2d()
 
 print("X.shape == {}; X.min == {}; X.max == {}".format(
@@ -147,14 +191,27 @@ valid_X = X[train_size:]
 valid_y = y[train_size:]
 
 #%%
-train_loss = []
-valid_loss = []
-num_epochs = 400
+num_epochs = 3000
+decay_rate = np.array(0.95, dtype=theano.config.floatX)
+stop_rate = 0.001
+
+read_model_data(network,'para.pickle')
+train_loss = read_data('train_loss.pickle')
+valid_loss = read_data('valid_loss.pickle')
+if train_loss is None:
+    train_loss = [] 
+if valid_loss is None:
+    valid_loss = [] 
+
+start_epoch = len(train_loss)
 #%%
-for epoch in range(num_epochs):
+print("Starting training from epoch {}...".format(start_epoch+1))
+print("epoch \t| train_loss \t| valid_loss \t| time \t\t|")
+print("---------------------------------------------------------")
+for epoch in range(start_epoch, num_epochs):
     train_err = 0
     train_batches = 0
-    start_time = dt.datetime.now()
+    start_time = time.time()
     for batch in iter_batch(train_X, train_y, 50, shuffle=True):
         batch_X, batch_y = batch
         train_err += train_fn(batch_X, batch_y)
@@ -168,24 +225,38 @@ for epoch in range(num_epochs):
         valid_err += dloss
         valid_batches +=1        
     
-    if epoch%1==0:    
-        print("Epoch {} of {} took {}".format(
-            epoch + 1, num_epochs, dt.datetime.now() - start_time))
-        print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
-        print("  valid    loss:\t\t{:.6f}".format(valid_err / valid_batches))
+    if (epoch+1)%50==0:
+        print("{} \t| {:.6f} \t| {:.6f} \t| {:.6f} s \t|".format(
+            epoch+1, 
+            train_err/train_batches,
+            valid_err/valid_batches,
+            time.time() - start_time))
+        #print("  learning rate:\t\t{}".format(learning_rate.get_value()))
+    
+    if epoch%50==0 and learning_rate.get_value()>stop_rate:
+        learning_rate.set_value(learning_rate.get_value()*decay_rate)
+        
+    if epoch>100 and valid_loss[epoch-100]<valid_err/valid_batches:
+        break
     train_loss.append(train_err/train_batches)
     valid_loss.append(valid_err/valid_batches)
+    if (epoch+1)%50==0:
+        write_model_data(network, 'para.pickle')
+        write_data(train_loss, 'train_loss.pickle')
+        write_data(valid_loss, 'valid_loss.pickle')
+    
+    
 #%%
-write_model_data(network, 'para')
-write_data(train_loss, 'train_loss')
-write_data(valid_loss, 'valid_loss')
+write_model_data(network, 'para.pickle')
+write_data(train_loss, 'train_loss.pickle')
+write_data(valid_loss, 'valid_loss.pickle')
 #%%
-import sys
-sys.exit()
+#import sys
+#sys.exit()
 
 #%%
-train_loss = read_data('train_loss')
-valid_loss = read_data('valid_loss')
+train_loss = read_data('train_loss.pickle')
+valid_loss = read_data('valid_loss.pickle')
 n_epochs = range(1,num_epochs+1)
 plt.plot(n_epochs, train_loss)
 plt.plot(n_epochs, valid_loss)
@@ -206,7 +277,7 @@ test_X, _ = load2d(test=True)
 #%%
 test_batch_X = test_X[0:50]
 #%%
-read_model_data(network,'para')
+read_model_data(network,'para.pickle')
 _, test_y = val_fn(test_batch_X, valid_y[0:50])
 
 #%%
