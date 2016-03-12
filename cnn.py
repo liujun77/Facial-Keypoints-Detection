@@ -198,10 +198,14 @@ stop_rate = 0.001
 read_model_data(network,'para.pickle')
 train_loss = read_data('train_loss.pickle')
 valid_loss = read_data('valid_loss.pickle')
+read_learning_rate = read_data('learning_rate.pickle')
+
 if train_loss is None:
     train_loss = [] 
 if valid_loss is None:
     valid_loss = [] 
+if read_learning_rate is not None:
+    learning_rate.set_value(read_learning_rate)
 
 start_epoch = len(train_loss)
 #%%
@@ -225,38 +229,39 @@ for epoch in range(start_epoch, num_epochs):
         valid_err += dloss
         valid_batches +=1        
     
-    if (epoch+1)%50==0:
+    if (epoch+1)%1==0:
         print("{} \t| {:.6f} \t| {:.6f} \t| {:.6f} s \t|".format(
             epoch+1, 
             train_err/train_batches,
             valid_err/valid_batches,
             time.time() - start_time))
-        #print("  learning rate:\t\t{}".format(learning_rate.get_value()))
+        print("  learning rate:\t\t{}".format(learning_rate.get_value()))
     
-    if epoch%50==0 and learning_rate.get_value()>stop_rate:
+    if epoch%1==0 and learning_rate.get_value()>stop_rate:
         learning_rate.set_value(learning_rate.get_value()*decay_rate)
         
     if epoch>100 and valid_loss[epoch-100]<valid_err/valid_batches:
         break
     train_loss.append(train_err/train_batches)
     valid_loss.append(valid_err/valid_batches)
-    if (epoch+1)%50==0:
+    if (epoch+1)%5==0:
         write_model_data(network, 'para.pickle')
         write_data(train_loss, 'train_loss.pickle')
         write_data(valid_loss, 'valid_loss.pickle')
+        write_data(learning_rate.get_value(), 'learning_rate.pickle')
     
     
 #%%
 write_model_data(network, 'para.pickle')
 write_data(train_loss, 'train_loss.pickle')
 write_data(valid_loss, 'valid_loss.pickle')
-#%%
-#import sys
-#sys.exit()
 
 #%%
 train_loss = read_data('train_loss.pickle')
 valid_loss = read_data('valid_loss.pickle')
+read_model_data(network,'para.pickle')
+
+#%%
 n_epochs = range(1,len(train_loss)+1)
 plt.plot(n_epochs, train_loss)
 plt.plot(n_epochs, valid_loss)
@@ -275,9 +280,7 @@ def plot_sample(x, y, axis):
 test_X, _ = load2d(test=True)
 
 #%%
-test_batch_X = test_X[0:50]
-#%%
-read_model_data(network,'para.pickle')
+test_batch_X = test_X[250:300]
 _, test_y = val_fn(test_batch_X, valid_y[0:50])
 
 #%%
