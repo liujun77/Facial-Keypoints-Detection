@@ -183,78 +183,84 @@ print("X.shape == {}; X.min == {}; X.max == {}".format(
 print("y.shape == {}; y.min == {}; y.max == {}".format(
     y.shape, y.min(), y.max()))
 
-train_size = int(X.shape[0]*0.8)
-valid_size = X.shape[0] - train_size
-train_X = X[:train_size]
-train_y = y[:train_size]
-valid_X = X[train_size:]
-valid_y = y[train_size:]
-
 #%%
-num_epochs = 3000
-decay_rate = np.array(0.95, dtype=theano.config.floatX)
-stop_rate = 0.001
 
-read_model_data(network,'para.pickle')
-train_loss = read_data('train_loss.pickle')
-valid_loss = read_data('valid_loss.pickle')
-read_learning_rate = read_data('learning_rate.pickle')
+def fit(X, y,
+        num_epochs=3000, 
+        batch_size=50, 
+        decay_rate=0.95,
+        stop_rate=0.001, 
+        learning_decay_steps=50,
+        plot_steps=10,
+        save_steps=50):
+            
+    decay = np.array(decay_rate, dtype=theano.config.floatX)
+    train_size = int(X.shape[0]*0.8)
+    valid_size = X.shape[0] - train_size
+    train_X = X[:train_size]
+    train_y = y[:train_size]
+    valid_X = X[train_size:]
+    valid_y = y[train_size:]
+    read_model_data(network,'para.pickle')
+    train_loss = read_data('train_loss.pickle')
+    valid_loss = read_data('valid_loss.pickle')
+    read_learning_rate = read_data('learning_rate.pickle')
 
-if train_loss is None:
-    train_loss = [] 
-if valid_loss is None:
-    valid_loss = [] 
-if read_learning_rate is not None:
-    learning_rate.set_value(read_learning_rate)
+    if train_loss is None:
+        train_loss = [] 
+    if valid_loss is None:
+        valid_loss = [] 
+    if read_learning_rate is not None:
+        learning_rate.set_value(read_learning_rate)
 
-start_epoch = len(train_loss)
-#%%
-print("Starting training from epoch {}...".format(start_epoch+1))
-print("epoch \t| train_loss \t| valid_loss \t| time \t\t|")
-print("---------------------------------------------------------")
-for epoch in range(start_epoch, num_epochs):
-    train_err = 0
-    train_batches = 0
-    start_time = time.time()
-    for batch in iter_batch(train_X, train_y, 50, shuffle=True):
-        batch_X, batch_y = batch
-        train_err += train_fn(batch_X, batch_y)
-        train_batches +=1
+    start_epoch = len(train_loss)
+    print("Starting training from epoch {}...".format(start_epoch+1))
+    print("epoch \t| train_loss \t| valid_loss \t| time \t\t|")
+    print("---------------------------------------------------------")
+    for epoch in range(start_epoch, num_epochs):
+        train_err = 0
+        train_batches = 0
+        start_time = time.time()
+        for batch in iter_batch(train_X, train_y, batch_size, shuffle=True):
+            batch_X, batch_y = batch
+            train_err += train_fn(batch_X, batch_y)
+            train_batches +=1
 
-    valid_err = 0
-    valid_batches = 0    
-    for batch in iter_batch(valid_X, valid_y, 50, shuffle=False):
-        batch_X, batch_y = batch
-        dloss, _ = val_fn(batch_X, batch_y)
-        valid_err += dloss
-        valid_batches +=1        
+        valid_err = 0
+        valid_batches = 0    
+        for batch in iter_batch(valid_X, valid_y, batch_size, shuffle=False):
+            batch_X, batch_y = batch
+            dloss, _ = val_fn(batch_X, batch_y)
+            valid_err += dloss
+            valid_batches +=1        
     
-    if (epoch+1)%1==0:
-        print("{} \t| {:.6f} \t| {:.6f} \t| {:.6f} s \t|".format(
-            epoch+1, 
-            train_err/train_batches,
-            valid_err/valid_batches,
-            time.time() - start_time))
-        print("  learning rate:\t\t{}".format(learning_rate.get_value()))
+        if (epoch+1)%plot_steps==0:
+            print("{} \t| {:.6f} \t| {:.6f} \t| {:.3f} s \t|".format(
+                epoch+1, 
+                train_err/train_batches,
+                valid_err/valid_batches,
+                time.time() - start_time))
+            print("  learning rate:\t\t{}".format(learning_rate.get_value()))
     
-    if epoch%1==0 and learning_rate.get_value()>stop_rate:
-        learning_rate.set_value(learning_rate.get_value()*decay_rate)
+        if epoch%learning_decay_steps==0 and learning_rate.get_value()>stop_rate:
+            learning_rate.set_value(learning_rate.get_value()*decay)
         
-    if epoch>100 and valid_loss[epoch-100]<valid_err/valid_batches:
-        break
-    train_loss.append(train_err/train_batches)
-    valid_loss.append(valid_err/valid_batches)
-    if (epoch+1)%5==0:
-        write_model_data(network, 'para.pickle')
-        write_data(train_loss, 'train_loss.pickle')
-        write_data(valid_loss, 'valid_loss.pickle')
-        write_data(learning_rate.get_value(), 'learning_rate.pickle')
-    
-    
+        if epoch>100 and valid_loss[epoch-100]<valid_err/valid_batches:
+            break
+        train_loss.append(train_err/train_batches)
+        valid_loss.append(valid_err/valid_batches)
+        if (epoch+1)%save_steps==0:
+            write_model_data(network, 'para.pickle')
+            write_data(train_loss, 'train_loss.pickle')
+            write_data(valid_loss, 'valid_loss.pickle')
+            write_data(learning_rate.get_value(), 'learning_rate.pickle')
+    write_model_data(network, 'para.pickle')
+    write_data(train_loss, 'train_loss.pickle')
+    write_data(valid_loss, 'valid_loss.pickle')
+
 #%%
-write_model_data(network, 'para.pickle')
-write_data(train_loss, 'train_loss.pickle')
-write_data(valid_loss, 'valid_loss.pickle')
+
+fit(X,y,plot_steps=1, learning_decay_steps=1,save_steps=5)
 
 #%%
 train_loss = read_data('train_loss.pickle')
