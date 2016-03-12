@@ -30,7 +30,7 @@ def load2d(test = False, cols = None):
     filename = TESTF if test else TRAINF
     df = pd.read_csv(filename)
     df['Image'] = df['Image'].apply(lambda im: np.fromstring(im, sep=' '))
-    if cols:
+    if test==False and len(cols)>0:
         df = df[list(cols) + ['Image']]
     print(df.count())
     df = df.dropna()
@@ -44,6 +44,42 @@ def load2d(test = False, cols = None):
     X = X.reshape(-1, 1, 96, 96)
     return X, y
     
+#%%
+
+model1 = ['left_eye_center_x', 'left_eye_center_y',
+          'right_eye_center_x', 'right_eye_center_y']
+model2 = ['left_eye_inner_corner_x', 'left_eye_inner_corner_y', 
+          'left_eye_outer_corner_x', 'left_eye_outer_corner_y',
+          'right_eye_inner_corner_x', 'right_eye_inner_corner_y',
+          'right_eye_outer_corner_x', 'right_eye_outer_corner_y']
+model3 = ['left_eyebrow_inner_end_x', 'left_eyebrow_inner_end_y',
+          'left_eyebrow_outer_end_x', 'left_eyebrow_outer_end_y',
+          'right_eyebrow_inner_end_x', 'right_eyebrow_inner_end_y',
+          'right_eyebrow_outer_end_x', 'right_eyebrow_outer_end_y']
+model4 = ['nose_tip_x', 'nose_tip_y']
+model5 = ['mouth_left_corner_x', 'mouth_left_corner_y',
+          'mouth_right_corner_x', 'mouth_right_corner_y',
+          'mouth_center_top_lip_x', 'mouth_center_top_lip_y']
+model6 = ['mouth_center_bottom_lip_x', 'mouth_center_bottom_lip_y']
+
+SPECIALIST={'left_eye_center_x':0, 'left_eye_center_y':1,
+            'right_eye_center_x':2, 'right_eye_center_y':3,
+            'left_eye_inner_corner_x':4, 'left_eye_inner_corner_y':5, 
+            'left_eye_outer_corner_x':6, 'left_eye_outer_corner_y':7,
+            'right_eye_inner_corner_x':8, 'right_eye_inner_corner_y':9,
+            'right_eye_outer_corner_x':10, 'right_eye_outer_corner_y':11,
+            'left_eyebrow_inner_end_x':12, 'left_eyebrow_inner_end_y':13,
+            'left_eyebrow_outer_end_x':14, 'left_eyebrow_outer_end_y':15,
+            'right_eyebrow_inner_end_x':16, 'right_eyebrow_inner_end_y':17,
+            'right_eyebrow_outer_end_x':18, 'right_eyebrow_outer_end_y':19,
+            'nose_tip_x':20, 'nose_tip_y':21,
+            'mouth_left_corner_x':22, 'mouth_left_corner_y':23,
+            'mouth_right_corner_x':24, 'mouth_right_corner_y':25,
+            'mouth_center_top_lip_x':26, 'mouth_center_top_lip_y':27,
+            'mouth_center_bottom_lip_x':28, 'mouth_center_bottom_lip_y':29}    
+
+cols = model6
+
 #%%
 class colors:  
     BLACK         = '\033[0;30m'  
@@ -87,7 +123,13 @@ def read_model_data(model, filename):
         return
     with open(filename, 'r') as f:
         data = pickle.load(f)
-    lg.layers.set_all_param_values(model, data)
+    if cols==[] or len(cols)==data[11].shape[0]:
+        lg.layers.set_all_param_values(model, data)
+    else:
+        data[10]=data[10][:,SPECIALIST[cols[0]]:SPECIALIST[cols[-1]]+1]
+        data[11]=data[11][SPECIALIST[cols[0]]:SPECIALIST[cols[-1]]+1]
+        lg.layers.set_all_param_values(model, data)
+        
      
 def read_data(filename):
     """Unpickles and loads parameters into a Lasagne model."""
@@ -101,7 +143,7 @@ def read_data(filename):
 #%%
 img_size = 96
 
-def net_cnn(input_var = None):
+def net_cnn(input_var = None, num_outputs=30):
     network = lg.layers.InputLayer(shape=(None, 1, img_size, img_size),
                                         input_var=input_var)
     network = Conv2DLayer(
@@ -136,7 +178,7 @@ def net_cnn(input_var = None):
             nonlinearity=lg.nonlinearities.rectify)
     network = lg.layers.DenseLayer(
             network,
-            num_units=30,
+            num_units=num_outputs,
             nonlinearity=None)
     return network
 
@@ -158,8 +200,13 @@ input_var = T.tensor4('in')
 target_var = T.matrix('out')
 learning_rate = theano.shared(np.array(0.1, dtype=theano.config.floatX))
 
+if len(cols)==0:
+    num_outputs = 30;
+else:
+    num_outputs = len(cols)
+
 print("Building model and compiling functions...")
-network = net_cnn(input_var)
+network = net_cnn(input_var, num_outputs=num_outputs)
 prediction = lg.layers.get_output(network)
 loss = lg.objectives.squared_error(prediction, target_var)
 loss = loss.mean()
@@ -175,15 +222,6 @@ train_fn = theano.function([input_var, target_var], loss, updates=updates)
 val_fn = theano.function([input_var, target_var], [valid_loss, valid_prediction])
 
 #%%
-print("Loading data...")
-X ,y =load2d()
-
-print("X.shape == {}; X.min == {}; X.max == {}".format(
-    X.shape, X.min(), X.max()))
-print("y.shape == {}; y.min == {}; y.max == {}".format(
-    y.shape, y.min(), y.max()))
-
-#%%
 
 def fit(X, y,
         num_epochs=3000, 
@@ -192,7 +230,11 @@ def fit(X, y,
         stop_rate=0.001, 
         learning_decay_steps=50,
         plot_steps=10,
-        save_steps=50):
+        save_steps=50,
+        para_file='para.pickle',
+        train_loss_file='train_loss.pickle',
+        valid_loss_file='valid_loss.pickle',
+        learing_rate_file='learning_rate.pickle'):
             
     decay = np.array(decay_rate, dtype=theano.config.floatX)
     train_size = int(X.shape[0]*0.8)
@@ -201,10 +243,10 @@ def fit(X, y,
     train_y = y[:train_size]
     valid_X = X[train_size:]
     valid_y = y[train_size:]
-    read_model_data(network,'para.pickle')
-    train_loss = read_data('train_loss.pickle')
-    valid_loss = read_data('valid_loss.pickle')
-    read_learning_rate = read_data('learning_rate.pickle')
+    read_model_data(network,para_file)
+    train_loss = read_data(train_loss_file)
+    valid_loss = read_data(valid_loss_file)
+    read_learning_rate = read_data(learing_rate_file)
 
     if train_loss is None:
         train_loss = [] 
@@ -240,7 +282,7 @@ def fit(X, y,
                 train_err/train_batches,
                 valid_err/valid_batches,
                 time.time() - start_time))
-            print("  learning rate:\t\t{}".format(learning_rate.get_value()))
+            #print("  learning rate:\t\t{}".format(learning_rate.get_value()))
     
         if epoch%learning_decay_steps==0 and learning_rate.get_value()>stop_rate:
             learning_rate.set_value(learning_rate.get_value()*decay)
@@ -250,15 +292,27 @@ def fit(X, y,
         train_loss.append(train_err/train_batches)
         valid_loss.append(valid_err/valid_batches)
         if (epoch+1)%save_steps==0:
-            write_model_data(network, 'para.pickle')
-            write_data(train_loss, 'train_loss.pickle')
-            write_data(valid_loss, 'valid_loss.pickle')
-            write_data(learning_rate.get_value(), 'learning_rate.pickle')
-    write_model_data(network, 'para.pickle')
-    write_data(train_loss, 'train_loss.pickle')
-    write_data(valid_loss, 'valid_loss.pickle')
+            write_model_data(network, para_file)
+            write_data(train_loss, train_loss_file)
+            write_data(valid_loss, valid_loss_file)
+            write_data(learning_rate.get_value(), learing_rate_file)
+    write_model_data(network, para_file)
+    write_data(train_loss, train_loss_file)
+    write_data(valid_loss, valid_loss_file)
 
 #%%
+
+print("Loading data...")
+X ,y =load2d(cols=cols)
+
+print("X.shape == {}; X.min == {}; X.max == {}".format(
+    X.shape, X.min(), X.max()))
+print("y.shape == {}; y.min == {}; y.max == {}".format(
+    y.shape, y.min(), y.max()))
+#%%
+
+if len(cols)>0:
+    read_model_data(network,'para.pickle')
 
 fit(X,y,plot_steps=1, learning_decay_steps=1,save_steps=5)
 
@@ -283,11 +337,11 @@ def plot_sample(x, y, axis):
 
 #%%
 
-test_X, _ = load2d(test=True)
+test_X, _ = load2d(test=True,cols=cols)
 
 #%%
 test_batch_X = test_X[250:300]
-_, test_y = val_fn(test_batch_X, valid_y[0:50])
+_, test_y = val_fn(test_batch_X, y[0:50])
 
 #%%
 fig = plt.figure(figsize=(6, 6))
