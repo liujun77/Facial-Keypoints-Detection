@@ -5,6 +5,7 @@ Created on Mon Mar  7 20:03:04 2016
 @author: liujun
 """
 
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -46,21 +47,21 @@ def load2d(test = False, cols = None):
     
 #%%
 
-model1 = ['left_eye_center_x', 'left_eye_center_y',
-          'right_eye_center_x', 'right_eye_center_y']
-model2 = ['left_eye_inner_corner_x', 'left_eye_inner_corner_y', 
+models = [['left_eye_center_x', 'left_eye_center_y',
+          'right_eye_center_x', 'right_eye_center_y'],
+         ['left_eye_inner_corner_x', 'left_eye_inner_corner_y', 
           'left_eye_outer_corner_x', 'left_eye_outer_corner_y',
           'right_eye_inner_corner_x', 'right_eye_inner_corner_y',
-          'right_eye_outer_corner_x', 'right_eye_outer_corner_y']
-model3 = ['left_eyebrow_inner_end_x', 'left_eyebrow_inner_end_y',
+          'right_eye_outer_corner_x', 'right_eye_outer_corner_y'],
+         ['left_eyebrow_inner_end_x', 'left_eyebrow_inner_end_y',
           'left_eyebrow_outer_end_x', 'left_eyebrow_outer_end_y',
           'right_eyebrow_inner_end_x', 'right_eyebrow_inner_end_y',
-          'right_eyebrow_outer_end_x', 'right_eyebrow_outer_end_y']
-model4 = ['nose_tip_x', 'nose_tip_y']
-model5 = ['mouth_left_corner_x', 'mouth_left_corner_y',
+          'right_eyebrow_outer_end_x', 'right_eyebrow_outer_end_y'],
+         ['nose_tip_x', 'nose_tip_y'],
+         ['mouth_left_corner_x', 'mouth_left_corner_y',
           'mouth_right_corner_x', 'mouth_right_corner_y',
-          'mouth_center_top_lip_x', 'mouth_center_top_lip_y']
-model6 = ['mouth_center_bottom_lip_x', 'mouth_center_bottom_lip_y']
+          'mouth_center_top_lip_x', 'mouth_center_top_lip_y'],
+         ['mouth_center_bottom_lip_x', 'mouth_center_bottom_lip_y']]
 
 SPECIALIST={'left_eye_center_x':0, 'left_eye_center_y':1,
             'right_eye_center_x':2, 'right_eye_center_y':3,
@@ -78,7 +79,7 @@ SPECIALIST={'left_eye_center_x':0, 'left_eye_center_y':1,
             'mouth_center_top_lip_x':26, 'mouth_center_top_lip_y':27,
             'mouth_center_bottom_lip_x':28, 'mouth_center_bottom_lip_y':29}    
 
-cols = model6
+cols = []
 
 #%%
 class colors:  
@@ -162,19 +163,19 @@ def net_cnn(input_var = None, num_outputs=30):
             nonlinearity=lg.nonlinearities.rectify)
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = Conv2DLayer(
-            lg.layers.dropout(network, p=.2), 
+            lg.layers.dropout(network, p=.1), 
             num_filters=128, 
             filter_size=(3, 3),
             pad='same', 
             nonlinearity=lg.nonlinearities.rectify)
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = lg.layers.DenseLayer(
-            lg.layers.dropout(network, p=.3),
-            num_units=500,
+            lg.layers.dropout(network, p=.5),
+            num_units=1000,
             nonlinearity=lg.nonlinearities.rectify)
     network = lg.layers.DenseLayer(
             lg.layers.dropout(network, p=.5),
-            num_units=500,
+            num_units=1000,
             nonlinearity=lg.nonlinearities.rectify)
     network = lg.layers.DenseLayer(
             network,
@@ -247,55 +248,59 @@ def fit(X, y,
     train_loss = read_data(train_loss_file)
     valid_loss = read_data(valid_loss_file)
     read_learning_rate = read_data(learing_rate_file)
-
+    min_loss = read_data('min_loss.pickle')    
+    
     if train_loss is None:
         train_loss = [] 
     if valid_loss is None:
         valid_loss = [] 
     if read_learning_rate is not None:
         learning_rate.set_value(read_learning_rate)
-
+    if min_loss is None:
+        min_loss = {'index': -1, 'loss': 1e3}
+    
     start_epoch = len(train_loss)
     print("Starting training from epoch {}...".format(start_epoch+1))
     print("epoch \t| train_loss \t| valid_loss \t| time \t\t|")
     print("---------------------------------------------------------")
     for epoch in range(start_epoch, num_epochs):
         train_err = 0
-        train_batches = 0
         start_time = time.time()
         for batch in iter_batch(train_X, train_y, batch_size, shuffle=True):
             batch_X, batch_y = batch
-            train_err += train_fn(batch_X, batch_y)
-            train_batches +=1
+            train_err += train_fn(batch_X, batch_y)*batch_X.shape[0]
 
         valid_err = 0
-        valid_batches = 0    
         for batch in iter_batch(valid_X, valid_y, batch_size, shuffle=False):
             batch_X, batch_y = batch
             dloss, _ = val_fn(batch_X, batch_y)
-            valid_err += dloss
-            valid_batches +=1        
+            valid_err += dloss*batch_X.shape[0]
     
         if (epoch+1)%plot_steps==0:
             print("{} \t| {:.6f} \t| {:.6f} \t| {:.3f} s \t|".format(
                 epoch+1, 
-                train_err/train_batches,
-                valid_err/valid_batches,
+                train_err/train_X.shape[0],
+                valid_err/valid_X.shape[0],
                 time.time() - start_time))
             #print("  learning rate:\t\t{}".format(learning_rate.get_value()))
     
         if epoch%learning_decay_steps==0 and learning_rate.get_value()>stop_rate:
             learning_rate.set_value(learning_rate.get_value()*decay)
         
-        if epoch>100 and valid_loss[epoch-100]<valid_err/valid_batches:
+        if min_loss['loss']>valid_err/valid_X.shape[0]:
+            min_loss['loss']=valid_err/valid_X.shape[0]
+            min_loss['index']=epoch
+            
+        if epoch-min_loss['index']>100:
             break
-        train_loss.append(train_err/train_batches)
-        valid_loss.append(valid_err/valid_batches)
+        train_loss.append(train_err/train_X.shape[0])
+        valid_loss.append(valid_err/valid_X.shape[0])
         if (epoch+1)%save_steps==0:
             write_model_data(network, para_file)
             write_data(train_loss, train_loss_file)
             write_data(valid_loss, valid_loss_file)
             write_data(learning_rate.get_value(), learing_rate_file)
+            write_data(min_loss, 'min_loss.pickle')
     write_model_data(network, para_file)
     write_data(train_loss, train_loss_file)
     write_data(valid_loss, valid_loss_file)
@@ -314,7 +319,13 @@ print("y.shape == {}; y.min == {}; y.max == {}".format(
 if len(cols)>0:
     read_model_data(network,'para.pickle')
 
-fit(X,y,plot_steps=1, learning_decay_steps=1,save_steps=5)
+fit(X,y,
+    num_epochs=10000, 
+    plot_steps=10, 
+    batch_size=100, 
+    decay_rate=0.95,
+    learning_decay_steps=50,
+    save_steps=50)
 
 #%%
 train_loss = read_data('train_loss.pickle')
@@ -353,3 +364,17 @@ for i in range(16):
     plot_sample(test_batch_X[i], test_y[i], ax)
 
 plt.show()
+#%%
+
+def predict(X, filelist):
+    y = np.zeros((0, 30))
+    for i in range(0,6):
+        read_model_data(network,filelist[i])
+        cols=models[i]
+        sub_y = np.zeros((0, len(cols)))
+        for batch in iter_batch(X, X, 50, shuffle=False):
+            batch_X, _ = batch
+            _, batch_y = val_fn(batch_X, y[0:50])
+            sub_y = np.vstack((y, batch_y))
+        y = np.c_(y, sub_y)
+    return y
