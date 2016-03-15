@@ -18,7 +18,9 @@ import lasagne as lg
 try:
     from lasagne.layers.cuda_convnet import Conv2DCCLayer as Conv2DLayer
     from lasagne.layers.cuda_convnet import MaxPool2DCCLayer as MaxPool2DLayer
+
 except ImportError:
+    print('import cuda support lib error!')
     Conv2DLayer = lg.layers.Conv2DLayer
     MaxPool2DLayer = lg.layers.MaxPool2DLayer
 
@@ -43,6 +45,7 @@ def load2d(test = False, cols = None):
     else:
         y = None
     X = X.reshape(-1, 1, 96, 96)
+    
     return X, y
     
 #%%
@@ -150,27 +153,27 @@ def net_cnn(input_var = None, num_outputs=30):
     network = Conv2DLayer(
             network, 
             num_filters=32, 
-            filter_size=(5, 5), 
-            pad='same', 
+            filter_size=(3, 3), 
+            #pad='same', 
             nonlinearity=lg.nonlinearities.rectify,
             W=lg.init.GlorotUniform())
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = Conv2DLayer(
             lg.layers.dropout(network, p=.1), 
             num_filters=64, 
-            filter_size=(3, 3),
-            pad='same', 
+            filter_size=(2, 2),
+            #pad='same', 
             nonlinearity=lg.nonlinearities.rectify)
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = Conv2DLayer(
-            lg.layers.dropout(network, p=.1), 
+            lg.layers.dropout(network, p=.2), 
             num_filters=128, 
-            filter_size=(3, 3),
-            pad='same', 
+            filter_size=(2, 2),
+            #pad='same', 
             nonlinearity=lg.nonlinearities.rectify)
     network = MaxPool2DLayer(network, pool_size=(2, 2))
     network = lg.layers.DenseLayer(
-            lg.layers.dropout(network, p=.5),
+            lg.layers.dropout(network, p=.3),
             num_units=1000,
             nonlinearity=lg.nonlinearities.rectify)
     network = lg.layers.DenseLayer(
@@ -195,11 +198,33 @@ def iter_batch(X , y, batch_size, shuffle = False):
         else:
             excerpt = slice(i, i+batch_size)
         yield X[excerpt], y[excerpt]
+        
+def rnd_flip(X, y):
+    flip_indices = [
+        (0, 2), (1, 3),
+        (4, 8), (5, 9), (6, 10), (7, 11),
+        (12, 16), (13, 17), (14, 18), (15, 19),
+        (22, 24), (23, 25)]
+    index = np.random.choice(X.shape[0], X.shape[0] // 2, replace=False)
+    #print(index)
+    #plt.imshow(X[index[0]].reshape(96,96),cmap='gray')
+    #plt.show()
+    X[index] = X[index, :, :, ::-1]
+    #plt.imshow(X[index[0]].reshape(96,96),cmap='gray')
+    #plt.show()
+    
+    if y is not None:
+        y[index, ::2] = y[index, ::2]*(-1)
+        for a, b in flip_indices:
+            y[index, a], y[index, b] = (y[index, b], y[index, a])
+    return X, y
+    
 #%%
 # graph
 input_var = T.tensor4('in')
 target_var = T.matrix('out')
 learning_rate = theano.shared(np.array(0.1, dtype=theano.config.floatX))
+momentum = theano.shared(np.array(0.9, dtype=theano.config.floatX))
 
 if len(cols)==0:
     num_outputs = 30;
@@ -213,7 +238,7 @@ loss = lg.objectives.squared_error(prediction, target_var)
 loss = loss.mean()
 params = lg.layers.get_all_params(network, trainable=True)
 updates = lg.updates.nesterov_momentum(
-            loss, params, learning_rate=learning_rate, momentum=0.9)
+            loss, params, learning_rate=learning_rate, momentum=momentum)
 
 valid_prediction = lg.layers.get_output(network, deterministic=True)
 valid_loss = lg.objectives.squared_error(valid_prediction, target_var)
@@ -228,7 +253,8 @@ def fit(X, y,
         num_epochs=3000, 
         batch_size=50, 
         decay_rate=0.95,
-        stop_rate=0.001, 
+        stop_rate=0.0001,
+        stop_momentum = 0.999,
         learning_decay_steps=50,
         plot_steps=10,
         save_steps=50,
@@ -238,6 +264,7 @@ def fit(X, y,
         learing_rate_file='learning_rate.pickle'):
             
     decay = np.array(decay_rate, dtype=theano.config.floatX)
+    mo_increase = np.array(1.005, dtype=theano.config.floatX)
     train_size = int(X.shape[0]*0.8)
     valid_size = X.shape[0] - train_size
     train_X = X[:train_size]
@@ -259,15 +286,18 @@ def fit(X, y,
     if min_loss is None:
         min_loss = {'index': -1, 'loss': 1e3}
     
+    best_para = None    
+    
     start_epoch = len(train_loss)
     print("Starting training from epoch {}...".format(start_epoch+1))
-    print("epoch \t| train_loss \t| valid_loss \t| time \t\t|")
-    print("---------------------------------------------------------")
+    print("epoch \t| train_loss \t| valid_loss \t| train/val \t | time \t\t|")
+    print("-------------------------------------------------------------------------")
     for epoch in range(start_epoch, num_epochs):
         train_err = 0
         start_time = time.time()
         for batch in iter_batch(train_X, train_y, batch_size, shuffle=True):
             batch_X, batch_y = batch
+            batch_X, batch_y = rnd_flip(batch_X, batch_y)
             train_err += train_fn(batch_X, batch_y)*batch_X.shape[0]
 
         valid_err = 0
@@ -275,33 +305,46 @@ def fit(X, y,
             batch_X, batch_y = batch
             dloss, _ = val_fn(batch_X, batch_y)
             valid_err += dloss*batch_X.shape[0]
-    
+        
+        cur_train_loss = train_err/train_X.shape[0]
+        cur_valid_loss = valid_err/valid_X.shape[0]
         if (epoch+1)%plot_steps==0:
-            print("{} \t| {:.6f} \t| {:.6f} \t| {:.3f} s \t|".format(
+            valid_print="{:.6f}".format(cur_valid_loss)
+            if cur_valid_loss<min_loss['loss']:
+                valid_print=colors.GREEN+valid_print+colors.ENDC
+            else:
+                valid_print=colors.RED+valid_print+colors.ENDC
+            
+            print("{} \t| {:.6f} \t| {:12} \t| {:.3f} \t| {:.3f} s \t|".format(
                 epoch+1, 
-                train_err/train_X.shape[0],
-                valid_err/valid_X.shape[0],
+                cur_train_loss,
+                valid_print,
+                cur_train_loss/cur_valid_loss,
                 time.time() - start_time))
             #print("  learning rate:\t\t{}".format(learning_rate.get_value()))
     
-        if epoch%learning_decay_steps==0 and learning_rate.get_value()>stop_rate:
-            learning_rate.set_value(learning_rate.get_value()*decay)
+        if epoch%learning_decay_steps==0:
+            if learning_rate.get_value()>stop_rate:
+                learning_rate.set_value(learning_rate.get_value()*decay)
+            if momentum.get_value()*mo_increase<stop_momentum:
+                momentum.set_value(momentum.get_value()*mo_increase)
         
-        if min_loss['loss']>valid_err/valid_X.shape[0]:
-            min_loss['loss']=valid_err/valid_X.shape[0]
+        if min_loss['loss']>cur_valid_loss:
+            min_loss['loss']=cur_valid_loss
             min_loss['index']=epoch
+            best_para=lg.layers.get_all_param_values(network)
             
-        if epoch-min_loss['index']>100:
+        if epoch-min_loss['index']>200:
             break
-        train_loss.append(train_err/train_X.shape[0])
-        valid_loss.append(valid_err/valid_X.shape[0])
+        train_loss.append(cur_train_loss)
+        valid_loss.append(cur_valid_loss)
         if (epoch+1)%save_steps==0:
             write_model_data(network, para_file)
             write_data(train_loss, train_loss_file)
             write_data(valid_loss, valid_loss_file)
             write_data(learning_rate.get_value(), learing_rate_file)
             write_data(min_loss, 'min_loss.pickle')
-    write_model_data(network, para_file)
+    write_data(best_para, para_file)
     write_data(train_loss, train_loss_file)
     write_data(valid_loss, valid_loss_file)
 
@@ -321,7 +364,7 @@ if len(cols)>0:
 
 fit(X,y,
     num_epochs=10000, 
-    plot_steps=10, 
+    plot_steps=1, 
     batch_size=100, 
     decay_rate=0.95,
     learning_decay_steps=50,
