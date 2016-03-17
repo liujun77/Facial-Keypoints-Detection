@@ -205,7 +205,7 @@ def rnd_flip(X, y):
         (4, 8), (5, 9), (6, 10), (7, 11),
         (12, 16), (13, 17), (14, 18), (15, 19),
         (22, 24), (23, 25)]
-    index = np.random.choice(X.shape[0], X.shape[0] // 2, replace=False)
+    index = np.random.choice(X.shape[0], X.shape[0] // 2 , replace=False)
     #print(index)
     #plt.imshow(X[index[0]].reshape(96,96),cmap='gray')
     #plt.show()
@@ -219,12 +219,15 @@ def rnd_flip(X, y):
             y[index, a], y[index, b] = (y[index, b], y[index, a])
     return X, y
     
+def float32(k):
+    return np.cast['float32'](k)    
+
 #%%
 # graph
 input_var = T.tensor4('in')
 target_var = T.matrix('out')
-learning_rate = theano.shared(np.array(0.1, dtype=theano.config.floatX))
-momentum = theano.shared(np.array(0.9, dtype=theano.config.floatX))
+learning_rate = theano.shared(float32(0.03))
+momentum = theano.shared(float32(0.9))
 
 if len(cols)==0:
     num_outputs = 30;
@@ -252,19 +255,18 @@ val_fn = theano.function([input_var, target_var], [valid_loss, valid_prediction]
 def fit(X, y,
         num_epochs=3000, 
         batch_size=50, 
-        decay_rate=0.95,
+        start_rate=0.03,
         stop_rate=0.0001,
+        start_momentum=0.9,
         stop_momentum = 0.999,
-        learning_decay_steps=50,
         plot_steps=10,
         save_steps=50,
         para_file='para.pickle',
         train_loss_file='train_loss.pickle',
-        valid_loss_file='valid_loss.pickle',
-        learing_rate_file='learning_rate.pickle'):
+        valid_loss_file='valid_loss.pickle',):
             
-    decay = np.array(decay_rate, dtype=theano.config.floatX)
-    mo_increase = np.array(1.005, dtype=theano.config.floatX)
+    rates = np.linspace(start_rate, stop_rate, num_epochs)
+    momentums = np.linspace(start_momentum, stop_momentum, num_epochs)
     train_size = int(X.shape[0]*0.8)
     valid_size = X.shape[0] - train_size
     train_X = X[:train_size]
@@ -274,15 +276,12 @@ def fit(X, y,
     read_model_data(network,para_file)
     train_loss = read_data(train_loss_file)
     valid_loss = read_data(valid_loss_file)
-    read_learning_rate = read_data(learing_rate_file)
     min_loss = read_data('min_loss.pickle')    
     
     if train_loss is None:
         train_loss = [] 
     if valid_loss is None:
         valid_loss = [] 
-    if read_learning_rate is not None:
-        learning_rate.set_value(read_learning_rate)
     if min_loss is None:
         min_loss = {'index': -1, 'loss': 1e3}
     
@@ -293,6 +292,9 @@ def fit(X, y,
     print("epoch \t| train_loss \t| valid_loss \t| train/val \t | time \t\t|")
     print("-------------------------------------------------------------------------")
     for epoch in range(start_epoch, num_epochs):
+        
+        learning_rate.set_value(float32(rates[epoch]))
+        momentum.set_value(float32(momentums[epoch]))
         train_err = 0
         start_time = time.time()
         for batch in iter_batch(train_X, train_y, batch_size, shuffle=True):
@@ -322,12 +324,6 @@ def fit(X, y,
                 cur_train_loss/cur_valid_loss,
                 time.time() - start_time))
             #print("  learning rate:\t\t{}".format(learning_rate.get_value()))
-    
-        if epoch%learning_decay_steps==0:
-            if learning_rate.get_value()>stop_rate:
-                learning_rate.set_value(learning_rate.get_value()*decay)
-            if momentum.get_value()*mo_increase<stop_momentum:
-                momentum.set_value(momentum.get_value()*mo_increase)
         
         if min_loss['loss']>cur_valid_loss:
             min_loss['loss']=cur_valid_loss
@@ -342,7 +338,6 @@ def fit(X, y,
             write_model_data(network, para_file)
             write_data(train_loss, train_loss_file)
             write_data(valid_loss, valid_loss_file)
-            write_data(learning_rate.get_value(), learing_rate_file)
             write_data(min_loss, 'min_loss.pickle')
     write_data(best_para, para_file)
     write_data(train_loss, train_loss_file)
@@ -365,9 +360,7 @@ if len(cols)>0:
 fit(X,y,
     num_epochs=10000, 
     plot_steps=1, 
-    batch_size=100, 
-    decay_rate=0.95,
-    learning_decay_steps=50,
+    batch_size=128, 
     save_steps=50)
 
 #%%
@@ -405,6 +398,7 @@ fig.subplots_adjust(
 for i in range(16):
     ax = fig.add_subplot(4, 4, i + 1, xticks=[], yticks=[])
     plot_sample(test_batch_X[i], test_y[i], ax)
+    #plot_sample(X[i], y[i], ax)
 
 plt.show()
 #%%
