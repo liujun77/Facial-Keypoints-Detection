@@ -80,9 +80,12 @@ SPECIALIST={'left_eye_center_x':0, 'left_eye_center_y':1,
             'mouth_left_corner_x':22, 'mouth_left_corner_y':23,
             'mouth_right_corner_x':24, 'mouth_right_corner_y':25,
             'mouth_center_top_lip_x':26, 'mouth_center_top_lip_y':27,
-            'mouth_center_bottom_lip_x':28, 'mouth_center_bottom_lip_y':29}    
+            'mouth_center_bottom_lip_x':28, 'mouth_center_bottom_lip_y':29} 
+            
+para_files = ['m0.pickle','m1.pickle','m2.pickle','m3.pickle','m4.pickle','m5.pickle']
 
-cols = []
+cols = models[0]
+para_file = para_files[0]
 
 #%%
 class colors:  
@@ -198,13 +201,21 @@ def iter_batch(X , y, batch_size, shuffle = False):
         else:
             excerpt = slice(i, i+batch_size)
         yield X[excerpt], y[excerpt]
-        
-def rnd_flip(X, y):
-    flip_indices = [
+
+flip_ind = {'para.pickle':[
         (0, 2), (1, 3),
         (4, 8), (5, 9), (6, 10), (7, 11),
         (12, 16), (13, 17), (14, 18), (15, 19),
-        (22, 24), (23, 25)]
+        (22, 24), (23, 25)],
+        'm0.pickle':[(0, 2), (1, 3)],
+        'm1.pickle':[(0, 2), (1, 3), (4, 6), (5, 7)],
+        'm2.pickle':[(0, 2), (1, 3), (4, 6), (5, 7)],
+        'm3.pickle':[],
+        'm4.pickle':[(0, 2), (1, 3)],
+        'm5.pickle':[]}
+
+def rnd_flip(X, y):
+    flip_indices = flip_ind[para_file]
     index = np.random.choice(X.shape[0], X.shape[0] // 2 , replace=False)
     #print(index)
     #plt.imshow(X[index[0]].reshape(96,96),cmap='gray')
@@ -361,12 +372,13 @@ fit(X,y,
     num_epochs=10000, 
     plot_steps=1, 
     batch_size=128, 
+    para_file=para_file,
     save_steps=50)
 
 #%%
 train_loss = read_data('train_loss.pickle')
 valid_loss = read_data('valid_loss.pickle')
-read_model_data(network,'para.pickle')
+read_model_data(network,para_file)
 
 #%%
 n_epochs = range(1,len(train_loss)+1)
@@ -387,7 +399,7 @@ def plot_sample(x, y, axis):
 test_X, _ = load2d(test=True,cols=cols)
 
 #%%
-test_batch_X = test_X[250:300]
+test_batch_X = test_X[0:50]
 _, test_y = val_fn(test_batch_X, y[0:50])
 
 #%%
@@ -403,15 +415,11 @@ for i in range(16):
 plt.show()
 #%%
 
-def predict(X, filelist):
-    y = np.zeros((0, 30))
-    for i in range(0,6):
-        read_model_data(network,filelist[i])
-        cols=models[i]
-        sub_y = np.zeros((0, len(cols)))
-        for batch in iter_batch(X, X, 50, shuffle=False):
-            batch_X, _ = batch
-            _, batch_y = val_fn(batch_X, y[0:50])
-            sub_y = np.vstack((y, batch_y))
-        y = np.c_(y, sub_y)
+def predict(X):
+    y = np.zeros((0, len(cols)))
+    for batch in iter_batch(X, X, 50, shuffle=False):
+        batch_X, _ = batch
+        _, batch_y = val_fn(batch_X, y[0:50])
+        y = np.vstack((y, batch_y))
+    #y = np.c_(y, sub_y)
     return y
