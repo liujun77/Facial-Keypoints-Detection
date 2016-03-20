@@ -83,9 +83,10 @@ SPECIALIST={'left_eye_center_x':0, 'left_eye_center_y':1,
             'mouth_center_bottom_lip_x':28, 'mouth_center_bottom_lip_y':29} 
             
 para_files = ['m0.pickle','m1.pickle','m2.pickle','m3.pickle','m4.pickle','m5.pickle']
+#%%
 
-cols = models[0]
-para_file = para_files[0]
+cols = models[1]
+para_file = para_files[1]
 
 #%%
 class colors:  
@@ -208,8 +209,8 @@ flip_ind = {'para.pickle':[
         (12, 16), (13, 17), (14, 18), (15, 19),
         (22, 24), (23, 25)],
         'm0.pickle':[(0, 2), (1, 3)],
-        'm1.pickle':[(0, 2), (1, 3), (4, 6), (5, 7)],
-        'm2.pickle':[(0, 2), (1, 3), (4, 6), (5, 7)],
+        'm1.pickle':[(0, 4), (1, 5), (2, 6), (3, 7)],
+        'm2.pickle':[(0, 4), (1, 5), (2, 6), (3, 7)],
         'm3.pickle':[],
         'm4.pickle':[(0, 2), (1, 3)],
         'm5.pickle':[]}
@@ -403,12 +404,12 @@ test_batch_X = test_X[0:50]
 _, test_y = val_fn(test_batch_X, y[0:50])
 
 #%%
-fig = plt.figure(figsize=(6, 6))
+fig = plt.figure(figsize=(8, 24))
 fig.subplots_adjust(
     left=0, right=1.5, bottom=0, top=1.5, hspace=0.05, wspace=0.05)
 
-for i in range(16):
-    ax = fig.add_subplot(4, 4, i + 1, xticks=[], yticks=[])
+for i in range(48):
+    ax = fig.add_subplot(12, 4, i + 1, xticks=[], yticks=[])
     plot_sample(test_batch_X[i], test_y[i], ax)
     #plot_sample(X[i], y[i], ax)
 
