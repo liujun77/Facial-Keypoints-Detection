@@ -28,7 +28,7 @@ except ImportError:
 
 TRAINF = 'training.csv'
 TESTF = 'test.csv'
-
+FLOOKUP = 'IdLookupTable.csv'
 def load2d(test = False, cols = None):
     filename = TESTF if test else TRAINF
     df = pd.read_csv(filename)
@@ -453,13 +453,13 @@ test_y = combine(test_X)
 #%%
 
 test_y=test_y*48+48
-test_y=test_y.reshape((-1))
+#test_y=test_y.reshape((-1))
 #%%
-
+lookup_table = pd.read_csv(FLOOKUP)
 value = []
 
-for i in range(test_y.shape[0]):
-    value.append((i+1, test_y[i]))
+for i in range(lookup_table.shape[0]):
+    value.append((i+1, test_y[lookup_table['ImageId'][i]-1][SPECIALIST[lookup_table['FeatureName'][i]]]))
 
 np.savetxt('submission.csv', 
            value, 
