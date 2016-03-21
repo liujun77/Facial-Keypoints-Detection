@@ -85,8 +85,8 @@ SPECIALIST={'left_eye_center_x':0, 'left_eye_center_y':1,
 para_files = ['m0.pickle','m1.pickle','m2.pickle','m3.pickle','m4.pickle','m5.pickle']
 #%%
 
-cols = models[1]
-para_file = para_files[1]
+cols = []#models[1]
+para_file = 'para.pickle'#para_files[1]
 
 #%%
 class colors:  
@@ -196,7 +196,7 @@ def iter_batch(X , y, batch_size, shuffle = False):
     if shuffle:
         index = np.arange(X.shape[0])
         np.random.shuffle(index)
-    for i in range(0, X.shape[0]-batch_size+1, batch_size):
+    for i in range(0, X.shape[0], batch_size):
         if shuffle:
             excerpt = index[i : i+batch_size]
         else:
@@ -401,7 +401,7 @@ test_X, _ = load2d(test=True,cols=cols)
 
 #%%
 test_batch_X = test_X[0:50]
-_, test_y = val_fn(test_batch_X, y[0:50])
+_, test_y = val_fn(test_batch_X, y[:50])
 
 #%%
 fig = plt.figure(figsize=(8, 24))
@@ -411,16 +411,59 @@ fig.subplots_adjust(
 for i in range(48):
     ax = fig.add_subplot(12, 4, i + 1, xticks=[], yticks=[])
     plot_sample(test_batch_X[i], test_y[i], ax)
-    #plot_sample(X[i], y[i], ax)
+    #plot_sample(test_X[i], test_y[i], ax)
 
 plt.show()
+
 #%%
 
-def predict(X):
-    y = np.zeros((0, len(cols)))
-    for batch in iter_batch(X, X, 50, shuffle=False):
-        batch_X, _ = batch
-        _, batch_y = val_fn(batch_X, y[0:50])
-        y = np.vstack((y, batch_y))
-    #y = np.c_(y, sub_y)
+def combine(X):
+    def predict(X):
+        y = np.zeros((0, len(cols)))
+        print('width={}'.format(len(cols)))
+        print(y.shape)
+        for batch in iter_batch(X, X, 50, shuffle=False):
+            batch_X, _ = batch
+            batch_y = val1_fn(batch_X)
+            print(batch_y.shape)
+            y = np.vstack((y, batch_y))
+        return y
+    y=np.zeros((X.shape[0],0))
+    for i in range(6):
+        print(i)
+        cols = models[i]
+        input_var = T.tensor4('in')
+        num_outputs = len(cols)
+        print(num_outputs)
+        network = net_cnn(input_var, num_outputs=num_outputs)
+        valid_prediction = lg.layers.get_output(network, deterministic=True)
+        val1_fn = theano.function([input_var], valid_prediction)
+        
+        para = read_data(para_files[i])
+        lg.layers.set_all_param_values(network, para)
+        suby = predict(X)
+        print(suby.shape)
+        y=np.c_[y,suby]
     return y
+
+#%%
+
+test_y = combine(test_X)
+
+#%%
+
+test_y=test_y*48+48
+test_y=test_y.reshape((-1))
+#%%
+
+value = []
+
+for i in range(test_y.shape[0]):
+    value.append((i+1, test_y[i]))
+
+np.savetxt('submission.csv', 
+           value, 
+           delimiter=',', 
+           header = 'RowId,Location', 
+           comments = '',
+           fmt = ('%d', '%f'))
